@@ -1,6 +1,6 @@
 CREATE DATABASE banco_dados_hospitalar;
 
-USE	banco_dados_hospitalar;
+USE banco_dados_hospitalar;
 
 -- -----------------------------------------------------
 -- Table departamentos
@@ -36,33 +36,6 @@ CREATE TABLE funcionarios (
 
 );
 
-ALTER TABLE departamentos ADD CONSTRAINT fk_gerente FOREIGN KEY (gerente) REFERENCES funcionarios (id);
-
--- -----------------------------------------------------
--- Table funcoes
--- -----------------------------------------------------
-CREATE TABLE funcoes (
-
-  id INT UNSIGNED AUTO_INCREMENT,
-  nome VARCHAR(50) NOT NULL,
-  descricao VARCHAR(100) NOT NULL,
-  PRIMARY KEY (id)
-  
-);
-
--- -----------------------------------------------------
--- Table funcionarios_funcoes
--- -----------------------------------------------------
-CREATE TABLE funcionarios_funcoes (
-
-  funcionario_id INT UNSIGNED NOT NULL,
-  funcao_id INT UNSIGNED NOT NULL,
-  PRIMARY KEY (funcao_id, funcionario_id),
-  FOREIGN KEY (funcionario_id) REFERENCES funcionarios (id),
-  FOREIGN KEY (funcao_id) REFERENCES funcoes (id)
-
-);
-
 -- -----------------------------------------------------
 -- Table telefones_funcionarios
 -- -----------------------------------------------------
@@ -76,7 +49,7 @@ CREATE TABLE telefones_funcionarios (
 );
 
 -- -----------------------------------------------------
--- Table administradores_especializacoes
+-- Table administradores
 -- -----------------------------------------------------
 CREATE TABLE administradores (
 
@@ -183,7 +156,6 @@ CREATE TABLE convenios (
   nome VARCHAR(45) NOT NULL,
   cnpj VARCHAR(18) NOT NULL,
   cobertura VARCHAR(45) NOT NULL,
-  valor DECIMAL(0.2) NOT NULL,
   PRIMARY KEY (id)
   
 );
@@ -232,7 +204,7 @@ CREATE TABLE internacoes (
   data_ini DATETIME NOT NULL,
   data_fim DATETIME NULL,
   diagnostico VARCHAR(100) NULL,
-  valor_total DECIMAL(0.2) NULL,
+  valor_total DECIMAL(0.2) NULL DEFAULT(0),
   PRIMARY KEY (id),
   FOREIGN KEY (paciente_id) REFERENCES pacientes (id),
   FOREIGN KEY (medico_id) REFERENCES medicos (funcionario_id),
@@ -270,7 +242,7 @@ CREATE TABLE consultas (
   data_hora DATETIME NOT NULL,
   status VARCHAR(20) NOT NULL,
   diagnostico VARCHAR(45) NULL,
-  valor_total DECIMAL(0.2) NULL,
+  valor_total DECIMAL(0.2) NULL DEFAULT(0),
   PRIMARY KEY (id),
   FOREIGN KEY (paciente_id) REFERENCES pacientes (id),
   FOREIGN KEY (medico_id) REFERENCES medicos (funcionario_id)
@@ -278,9 +250,9 @@ CREATE TABLE consultas (
 );
 
 -- -----------------------------------------------------
--- Table dosagem
+-- Table unidades_medidas
 -- -----------------------------------------------------
-CREATE TABLE dosagem (
+CREATE TABLE unidades_medidas (
 
   id INT UNSIGNED AUTO_INCREMENT,
   tipo VARCHAR(45) NOT NULL,
@@ -295,7 +267,7 @@ CREATE TABLE enfermeiros (
 
   funcionarios_id INT UNSIGNED NOT NULL,
   coren VARCHAR(13) NOT NULL,
-  formaçao VARCHAR(45) NOT NULL,
+  formacao VARCHAR(45) NOT NULL,
   PRIMARY KEY (funcionarios_id),
   FOREIGN KEY (funcionarios_id) REFERENCES funcionarios (id)
    
@@ -404,32 +376,20 @@ CREATE TABLE vias_administracao (
 );
 
 -- -----------------------------------------------------
--- Table prescricoes
+-- Table receitas
 -- -----------------------------------------------------
-CREATE TABLE prescricoes (
+CREATE TABLE receitas (
 
-  id INT UNSIGNED AUTO_INCREMENT,
-  qtd_medicamento INT NOT NULL,
-  uso VARCHAR(255) NOT NULL,
-  dosagem_id INT UNSIGNED NOT NULL,
-  vias_administracao_id INT UNSIGNED NOT NULL,
   consultas_id INT UNSIGNED NOT NULL,
-  PRIMARY KEY (id),
-  FOREIGN KEY (consultas_id) REFERENCES consultas (id),
-  FOREIGN KEY (vias_administracao_id) REFERENCES vias_administracao (id),
-  FOREIGN KEY (dosagem_id) REFERENCES dosagem (id)
-  
-);
-
--- -----------------------------------------------------
--- Table estoque_medicamentos_receitas
--- -----------------------------------------------------
-CREATE TABLE estoque_medicamentos_receitas (
-
-  receitas_id INT UNSIGNED NOT NULL,
   medicamentos_id INT UNSIGNED NOT NULL,
-  PRIMARY KEY (receitas_id, medicamentos_id),
-  FOREIGN KEY (receitas_id) REFERENCES prescricoes (id),
+  qtd_medicamento INT NOT NULL,
+  descricao_uso VARCHAR(255) NOT NULL,
+  unidade_medida_id INT UNSIGNED NOT NULL,
+  vias_administracao_id INT UNSIGNED NOT NULL,
+  PRIMARY KEY (consultas_id, medicamentos_id),
+  FOREIGN KEY (vias_administracao_id) REFERENCES vias_administracao (id),
+  FOREIGN KEY (unidade_medida_id) REFERENCES unidades_medidas (id),
+  FOREIGN KEY (consultas_id) REFERENCES consultas (id),
   FOREIGN KEY (medicamentos_id) REFERENCES estoque_medicamentos (id)
   
 );
@@ -464,7 +424,7 @@ CREATE TABLE exames_consultas (
 );
 
 -- -----------------------------------------------------
--- Table exames_has_estoque_itens
+-- Table estoque_itens_exames
 -- -----------------------------------------------------
 CREATE TABLE estoque_itens_exames (
 
@@ -576,4 +536,191 @@ CREATE TABLE servicos_gerais_quartos_estoque_itens (
   FOREIGN KEY (quartos_id , servicos_gerais_id) REFERENCES servicos_gerais_quartos (quartos_id , servicos_gerais_id)
 
 );
+
+
+/**
+* Procedures: Registrar consultas e gerar receitas médicas automaticamente.
+*/
+
+DELIMITER $$
+CREATE PROCEDURE gerar_receita(IN new_consulta_id INT, IN new_medicamentos_id INT, IN new_qtd_medicamento INT, 
+										 IN new_descricao_uso VARCHAR(255), IN new_unidade_medida_id INT, 
+										 IN new_vias_administracao_id INT)
+BEGIN 
+
+	INSERT INTO receitas (
+		consultas_id, medicamentos_id, qtd_medicamento, 
+		descricao_uso, unidade_medida_id, vias_administracao_id
+	)
+	VALUES(
+		(new_consulta_id, new_medicamentos_id, new_qtd_medicamento, new_descricao_uso, 
+		 new_unidade_medida_id, new_vias_administracao_id)
+	);
+
+END $$
+DELIMITER ;
+
+
+/**
+* Triggers: Atualizar o estoque de medicamentos após a prescrição.
+*/
+
+DELIMITER $$
+CREATE TRIGGER tg_atualizar_estoque_medicamento
+	AFTER
+	INSERT
+ON receitas
+FOR EACH ROW
+BEGIN 
+	
+	UPDATE estoque_medicamentos
+	SET estoque_medicamentos.quantidade = estoque_medicamentos.quantidade - 1
+	WHERE estoque_medicamentos.id = NEW.medicamentos.id;
+	
+END $$
+DELIMITER $$
+
+
+/**
+* Views: Visão consolidada do prontuário médico de um paciente.
+*/
+
+CREATE OR REPLACE VIEW prontuario_medico AS
+SELECT pacientes.nome AS Nome_Paciente, pacientes.rg AS RG_Paciente, pacientes.cpf AS CPF_Paciente,
+		 pacientes.sexo AS Sexo_Paciente, pacientes.dt_nascimento AS Data_Nascimento_Paciente,
+		 enderecos.cep AS CEP, enderecos.uf AS UF, enderecos.cidade AS Cidade, 
+		 enderecos.bairro AS Bairro, enderecos.logradouro AS Logradouro, enderecos.numero AS Numero,
+		 convenios.nome AS Nome_Convenio, convenios.cobertura AS Cobertura_Convenio,
+		 telefones_pacientes.numero AS Numero_Telefone, consultas.motivo AS Motivo_Consulta,
+		 consultas.descricao AS Descricao_Consulta, consultas.data_hora AS Data_Hora_Consulta,
+		 consultas.status AS Status_Consulta, consultas.diagnostico AS Diagnostico_Consulta,
+		 consultas.valor_total AS Valor_Total_Consulta, funcionarios.nome AS Nome_Medico,
+		 exames.nome AS Nome_Exame, exames.descricao AS Descricao_Exame, exames.data_hora AS Data_Hora_Exame,
+		 exames.status AS Status_Exame, exames.resultado AS Resultado_Exame, exames.valor AS Valor_Exame,
+		 unidades_medidas.tipo AS Unidade_Medida_Medicamento, 
+		 vias_administracao.via AS Via_Administracao, 
+		 estoque_medicamentos.nome AS Nome_Medicamento, estoque_medicamentos.valor AS Valor_Medicamento
+FROM pacientes
+JOIN historicos_medicos ON historicos_medicos.pacientes_id = pacientes.id
+JOIN enderecos ON pacientes.endereco_id = enderecos.id
+JOIN telefones_pacientes ON telefones_pacientes.paciente_id = pacientes.id
+JOIN convenios ON pacientes.convenios_id = convenios.id
+JOIN consultas ON consultas.paciente_id = pacientes.id
+JOIN receitas ON receitas.consultas_id = consultas.id
+JOIN estoque_medicamentos ON estoque_medicamentos.id = receitas.medicamentos_id
+JOIN exames_consultas ON consultas.id = exames_consultas.consulta_id
+JOIN exames ON exames.id = exames_consultas.exame_id
+JOIN medicos ON consultas.medico_id = medicos.funcionario_id
+JOIN funcionarios ON funcionarios.id = medicos.funcionario_id
+JOIN vias_administracao ON vias_administracao.id = receitas.vias_administracao_id
+JOIN unidades_medidas ON unidades_medidas.id = receitas.unidade_medida_id  
+
+
+/**
+* Subqueries: Encontrar médicos com mais consultas em um período.
+*/
+
+SELECT funcionarios.id, funcionarios.nome, COUNT(consultas.medico_id) AS QTD_Consultas
+FROM consultas
+JOIN medicos ON consultas.medico_id = medicos.funcionario_id
+JOIN funcionarios ON medicos.funcionario_id = funcionarios.id
+GROUP BY consultas.medico_id
+HAVING COUNT(consultas.medico_id) = (SELECT COUNT(c.medico_id) FROM consultas AS c WHERE c.data_hora BETWEEN '2023-10-01 08:30:00' AND '2025-10-01 08:30:00' GROUP BY c.medico_id ORDER BY COUNT(c.medico_id) DESC LIMIT 1)  
+ORDER BY consultas.medico_id ASC                                                                                                         
+
+
+/**
+* Gerenciamento de Usuários: Perfis de acesso para médicos, enfermeiros, 
+  administradores, recepcionistas.
+*/
+
+CREATE USER 'medicos_user'@'localhost' IDENTIFIED BY 'medico123';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.receitas TO 'medicos_user'@'localhost';
+GRANT SELECT ON banco_dados_hospitalar.vias_administracao TO 'medicos_user'@'localhost';
+GRANT SELECT ON banco_dados_hospitalar.unidades_medidas TO 'medicos_user'@'localhost';
+GRANT SELECT, UPDATE ON banco_dados_hospitalar.consultas TO 'medicos_user'@'localhost';
+GRANT SELECT, UPDATE ON banco_dados_hospitalar.exames TO 'medicos_user'@'localhost';
+GRANT SELECT, UPDATE ON banco_dados_hospitalar.internacoes TO 'medicos_user'@'localhost';
+
+CREATE USER 'enfermeiros_user'@'localhost' IDENTIFIED BY 'enfermeiro123';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.estoque_medicamentos TO 'enfermeiros_user'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.estoque_itens TO 'enfermeiros_user'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.estoque_itens_exames TO 'enfermeiros_user'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.estoque_itens_consultas TO 'enfermeiros_user'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.estoque_itens_internacoes TO 'enfermeiros_user'@'localhost';
+
+CREATE USER 'administradores_user'@'localhost' IDENTIFIED BY 'administrador123';
+GRANT ALL PRIVILEGES ON banco_dados_hospitalar.* TO 'administradores_user'@'localhost';
+
+CREATE USER 'recepcionistas_user'@'localhost' IDENTIFIED BY 'recepcionista123';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.pacientes TO 'recepcionistas_user'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.telefones_pacientes TO 'recepcionistas_user'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.convenios TO 'recepcionistas_user'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.enderecos TO 'recepcionistas_user'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.historicos_medicos TO 'recepcionistas_user'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.pagamentos TO 'recepcionistas_user'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.consultas TO 'recepcionistas_user'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.exames_consultas TO 'recepcionistas_user'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.internacoes TO 'recepcionistas_user'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.enfermeiros_internacoes TO 'recepcionistas_user'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.cirurgias TO 'recepcionistas_user'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.servicos_gerais_quartos TO 'recepcionistas_user'@'localhost';
+GRANT SELECT ON banco_dados_hospitalar.exames TO 'recepcionistas_user'@'localhost';
+GRANT SELECT ON banco_dados_hospitalar.medicos TO 'recepcionistas_user'@'localhost';
+GRANT SELECT ON banco_dados_hospitalar.quartos TO 'recepcionistas_user'@'localhost';
+GRANT SELECT ON banco_dados_hospitalar.enfermeiros TO 'recepcionistas_user'@'localhost';
+GRANT SELECT ON banco_dados_hospitalar.servicos_gerais TO 'recepcionistas_user'@'localhost';
+
+
+/**
+* Tigger: Soma o valor de todos os exames de uma consulta.
+*/
+DROP TRIGGER IF EXISTS valor_total_consultas;
+DELIMITER //
+CREATE TRIGGER valor_total_consultas AFTER UPDATE ON exames
+FOR EACH ROW
+BEGIN
+
+	IF (SELECT status FROM exames WHERE id = NEW.id) = 'Concluído' THEN
+
+		UPDATE consultas SET valor_total = valor_total + (SELECT valor FROM exames WHERE id = NEW.id) WHERE id = (SELECT consulta_id FROM exames_consultas WHERE exame_id = NEW.id);
+        
+    END IF;
+     
+END //
+DELIMITER ;
+
+
+/**
+* Tigger: Soma o valor de todos os exames de uma internações.
+*/
+DROP TRIGGER IF EXISTS valor_total_internacoes;
+DELIMITER //
+CREATE TRIGGER valor_total_internacoes AFTER UPDATE ON exames
+FOR EACH ROW
+BEGIN
+
+	IF (SELECT status FROM exames WHERE id = NEW.id) = 'Concluído' THEN
+
+		UPDATE internacoes SET valor_total = valor_total + (SELECT valor FROM exames WHERE id = NEW.id) WHERE id = (SELECT internacoes_id FROM exames_internacoes WHERE exame_id = NEW.id);
+        
+    END IF;
+     
+END //
+DELIMITER ;
+
+
+/**
+* Tigger: Soma o valor de todas as cirurgias de uma internações.
+*/
+DROP TRIGGER IF EXISTS valor_total_cirurgias;
+DELIMITER //
+CREATE TRIGGER valor_total_cirurgias AFTER INSERT ON cirurgias
+FOR EACH ROW
+BEGIN
+
+	UPDATE internacoes SET valor_total = valor_total + NEW.valor WHERE id = NEW.internacao_id;
+     
+END //
+DELIMITER ;
 
