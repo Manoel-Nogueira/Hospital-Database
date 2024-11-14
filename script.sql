@@ -380,13 +380,14 @@ CREATE TABLE vias_administracao (
 -- -----------------------------------------------------
 CREATE TABLE receitas (
 
+  id INT UNSIGNED AUTO_INCREMENT,
   consultas_id INT UNSIGNED NOT NULL,
   medicamentos_id INT UNSIGNED NOT NULL,
   qtd_medicamento INT NOT NULL,
   descricao_uso VARCHAR(255) NOT NULL,
   unidade_medida_id INT UNSIGNED NOT NULL,
   vias_administracao_id INT UNSIGNED NOT NULL,
-  PRIMARY KEY (consultas_id, medicamentos_id),
+  PRIMARY KEY (id),
   FOREIGN KEY (vias_administracao_id) REFERENCES vias_administracao (id),
   FOREIGN KEY (unidade_medida_id) REFERENCES unidades_medidas (id),
   FOREIGN KEY (consultas_id) REFERENCES consultas (id),
@@ -543,19 +544,13 @@ CREATE TABLE servicos_gerais_quartos_estoque_itens (
 */
 
 DELIMITER $$
-CREATE PROCEDURE gerar_receita(IN new_consulta_id INT, IN new_medicamentos_id INT, IN new_qtd_medicamento INT, 
-										 IN new_descricao_uso VARCHAR(255), IN new_unidade_medida_id INT, 
-										 IN new_vias_administracao_id INT)
+CREATE PROCEDURE gerar_receita(IN new_consulta_id INT, IN new_medicamentos_id INT, IN new_qtd_medicamento INT, IN new_descricao_uso VARCHAR(255), IN new_unidade_medida_id INT, IN new_vias_administracao_id INT)
 BEGIN 
 
-	INSERT INTO receitas (
-		consultas_id, medicamentos_id, qtd_medicamento, 
-		descricao_uso, unidade_medida_id, vias_administracao_id
-	)
-	VALUES(
+	INSERT INTO receitas (consultas_id, medicamentos_id, qtd_medicamento, descricao_uso, unidade_medida_id, vias_administracao_id) VALUES
 		(new_consulta_id, new_medicamentos_id, new_qtd_medicamento, new_descricao_uso, 
-		 new_unidade_medida_id, new_vias_administracao_id)
-	);
+		 new_unidade_medida_id, new_vias_administracao_id
+		);
 
 END $$
 DELIMITER ;
@@ -567,9 +562,7 @@ DELIMITER ;
 
 DELIMITER $$
 CREATE TRIGGER tg_atualizar_estoque_medicamento
-	AFTER
-	INSERT
-ON receitas
+AFTER INSERT ON receitas
 FOR EACH ROW
 BEGIN 
 	
@@ -676,7 +669,7 @@ GRANT SELECT ON banco_dados_hospitalar.servicos_gerais TO 'recepcionistas_user'@
 * Tigger: Soma o valor de todos os exames de uma consulta.
 */
 DROP TRIGGER IF EXISTS valor_total_consultas;
-DELIMITER //
+DELIMITER $$
 CREATE TRIGGER valor_total_consultas AFTER UPDATE ON exames
 FOR EACH ROW
 BEGIN
@@ -687,7 +680,7 @@ BEGIN
         
     END IF;
      
-END //
+END $$
 DELIMITER ;
 
 
@@ -695,7 +688,7 @@ DELIMITER ;
 * Tigger: Soma o valor de todos os exames de uma internações.
 */
 DROP TRIGGER IF EXISTS valor_total_internacoes;
-DELIMITER //
+DELIMITER $$
 CREATE TRIGGER valor_total_internacoes AFTER UPDATE ON exames
 FOR EACH ROW
 BEGIN
@@ -706,7 +699,7 @@ BEGIN
         
     END IF;
      
-END //
+END $$
 DELIMITER ;
 
 
@@ -714,13 +707,26 @@ DELIMITER ;
 * Tigger: Soma o valor de todas as cirurgias de uma internações.
 */
 DROP TRIGGER IF EXISTS valor_total_cirurgias;
-DELIMITER //
+DELIMITER $$
 CREATE TRIGGER valor_total_cirurgias AFTER INSERT ON cirurgias
 FOR EACH ROW
 BEGIN
 
 	UPDATE internacoes SET valor_total = valor_total + NEW.valor WHERE id = NEW.internacao_id;
      
-END //
+END $$
 DELIMITER ;
 
+/**
+* Views: Receita das consultas
+*/
+
+DROP VIEW IF EXISTS receitas_consultas;
+CREATE VIEW receitas_consultas AS
+SELECT consultas.id AS id_consulta, funcionarios.nome AS nome_medico, estoque_medicamentos.nome AS nome_medicamento, qtd_medicamento, tipo AS medida, via, descricao_uso  FROM consultas
+JOIN medicos ON consultas.medico_id = medicos.funcionario_id
+JOIN funcionarios ON medicos.funcionario_id = funcionarios.id
+JOIN receitas ON consultas.id = receitas.consultas_id
+JOIN estoque_medicamentos ON receitas.medicamentos_id = estoque_medicamentos.id
+JOIN unidades_medidas ON receitas.unidade_medida_id = unidades_medidas.id
+JOIN vias_administracao ON receitas.vias_administracao_id = vias_administracao.id;
