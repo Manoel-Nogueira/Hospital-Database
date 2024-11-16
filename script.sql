@@ -542,15 +542,12 @@ CREATE TABLE servicos_gerais_quartos_estoque_itens (
 /**
 * Procedures: Registrar consultas e gerar receitas médicas automaticamente.
 */
-
 DELIMITER $$
 CREATE PROCEDURE gerar_receita(IN new_consulta_id INT, IN new_medicamentos_id INT, IN new_qtd_medicamento INT, IN new_descricao_uso VARCHAR(255), IN new_unidade_medida_id INT, IN new_vias_administracao_id INT)
 BEGIN 
 
 	INSERT INTO receitas (consultas_id, medicamentos_id, qtd_medicamento, descricao_uso, unidade_medida_id, vias_administracao_id) VALUES
-		(new_consulta_id, new_medicamentos_id, new_qtd_medicamento, new_descricao_uso, 
-		 new_unidade_medida_id, new_vias_administracao_id
-		);
+			     (new_consulta_id, new_medicamentos_id, new_qtd_medicamento, new_descricao_uso, new_unidade_medida_id, new_vias_administracao_id);
 
 END $$
 DELIMITER ;
@@ -559,7 +556,6 @@ DELIMITER ;
 /**
 * Triggers: Atualizar o estoque de medicamentos após a prescrição.
 */
-
 DELIMITER $$
 CREATE TRIGGER tg_atualizar_estoque_medicamento
 AFTER INSERT ON receitas
@@ -577,7 +573,6 @@ DELIMITER $$
 /**
 * Views: Visão consolidada do prontuário médico de um paciente.
 */
-
 CREATE OR REPLACE VIEW prontuario_medico AS
 SELECT pacientes.nome AS Nome_Paciente, pacientes.rg AS RG_Paciente, pacientes.cpf AS CPF_Paciente,
 		 pacientes.sexo AS Sexo_Paciente, pacientes.dt_nascimento AS Data_Nascimento_Paciente,
@@ -612,7 +607,6 @@ JOIN unidades_medidas ON unidades_medidas.id = receitas.unidade_medida_id
 /**
 * Subqueries: Encontrar médicos com mais consultas em um período.
 */
-
 SELECT funcionarios.id, funcionarios.nome, COUNT(consultas.medico_id) AS QTD_Consultas
 FROM consultas
 JOIN medicos ON consultas.medico_id = medicos.funcionario_id
@@ -626,7 +620,6 @@ ORDER BY consultas.medico_id ASC
 * Gerenciamento de Usuários: Perfis de acesso para médicos, enfermeiros, 
   administradores, recepcionistas.
 */
-
 CREATE USER 'medicos_user'@'localhost' IDENTIFIED BY 'medico123';
 GRANT SELECT, INSERT, UPDATE ON banco_dados_hospitalar.receitas TO 'medicos_user'@'localhost';
 GRANT SELECT ON banco_dados_hospitalar.vias_administracao TO 'medicos_user'@'localhost';
@@ -720,7 +713,6 @@ DELIMITER ;
 /**
 * Views: Receita das consultas
 */
-
 DROP VIEW IF EXISTS receitas_consultas;
 CREATE VIEW receitas_consultas AS
 SELECT consultas.id AS id_consulta, funcionarios.nome AS nome_medico, estoque_medicamentos.nome AS nome_medicamento, qtd_medicamento, tipo AS medida, via, descricao_uso  FROM consultas
